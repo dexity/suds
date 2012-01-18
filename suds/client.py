@@ -59,6 +59,9 @@ class Client(object):
     @type sd: L{ServiceDefinition}
     @ivar messages: The last sent/received messages.
     @type messages: str[2]
+    @ivar multirequest: Specifies if request is a multi request based on parameter 
+                        order (int) or parameter key (str). Default is None
+    @type multirequest: int, str
     """
     @classmethod
     def items(cls, sobject):
@@ -115,7 +118,9 @@ class Client(object):
         for s in self.wsdl.services:
             sd = ServiceDefinition(self.wsdl, s)
             self.sd.append(sd)
-        self.messages = dict(tx=None, rx=None)
+        self.messages       = dict(tx=None, rx=None)
+        self.multirequest   = None
+        
         
     def set_options(self, **kwargs):
         """
@@ -182,6 +187,7 @@ class Client(object):
         clone.service = ServiceSelector(clone, self.wsdl.services)
         clone.sd = self.sd
         clone.messages = dict(tx=None, rx=None)
+        clone.multirequest  = self.multirequest
         return clone
  
     def __str__(self):
@@ -527,8 +533,8 @@ class Method:
     def __call__(self, *args, **kwargs):
         """
         Invoke the method.
-        """
-        clientclass = self.clientclass(kwargs)
+        """        
+        clientclass = self.clientclass(kwargs)  # kwargs makes sense here for SimClient only
         client = clientclass(self.client, self.method)
         if not self.faults():
             try:
@@ -585,17 +591,35 @@ class SoapClient:
         @return: The result of the method invocation.
         @rtype: I{builtin}|I{subclass of} L{Object}
         """
-        timer = metrics.Timer()
-        timer.start()
-        result = None
+        timer   = metrics.Timer()
+        timer.start()   # Traces message creation and request sending
+        
+        result  = None
         binding = self.method.binding.input
-        msg = binding.get_message(self.method, args, kwargs)
-        timer.stop()
-        metrics.log.debug(
-                "message for '%s' created: %s",
-                self.method.name, timer)
-        timer.start()
-        result = self.send(msg)
+        msg     = None
+        multirequest    = self.client.multirequest
+        # Single request
+        if multirequest == None:    
+            msg = binding.get_message(self.method, args, kwargs)
+            result = self.send(msg)
+        # Multi request
+        else:
+            msg     = []
+            if isinstsance(multirequest, int) and len(args) > multirequest:
+                params  = args[multirequest]
+                for p in params:
+                    args[multirequest]  = p
+                    msg = binding.get_message(self.method, args, kwargs)
+                    msg.append(p)
+            elif isinstsance(multirequest, basestring) and kwargs.has_key(multirequest):
+                params  = kwargs[multirequest]
+                for p in params:
+                    kwargs[multirequest]  = p
+                    msg = binding.get_message(self.method, args, kwargs)
+                    msg.append(p)
+
+            result  = self.multi_send(msg)
+            
         timer.stop()
         metrics.log.debug(
                 "method '%s' invoked: %s",
@@ -610,17 +634,17 @@ class SoapClient:
         @return: The reply to the sent message.
         @rtype: I{builtin} or I{subclass of} L{Object}
         """
-        result = None
-        location = self.location()
-        binding = self.method.binding.input
-        transport = self.options.transport
-        retxml = self.options.retxml
+        result      = None
+        location    = self.location()
+        binding     = self.method.binding.input
+        transport   = self.options.transport
+        retxml      = self.options.retxml
         log.debug('sending to (%s)\nmessage:\n%s', location, msg)
         try:
             self.last_sent(Document(msg))
             request = Request(location, str(msg))
             request.headers = self.headers()
-            reply = transport.send(request)
+            reply   = transport.send(request) # Sends the request
             if retxml:
                 result = reply.message
             else:
@@ -632,6 +656,12 @@ class SoapClient:
                 log.error(self.last_sent())
                 result = self.failed(binding, e)
         return result
+    
+    
+    def multi_send(self, msg):
+        "Sends multi request"
+        
+        
     
     def headers(self):
         """

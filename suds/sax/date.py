@@ -182,7 +182,7 @@ class Time:
         if hasattr(self, 'offset'):
             today = dt.date.today()
             tz = Timezone()
-            delta = Timezone.adjustment(self.offset)
+            delta = tz.adjustment(self.offset)
             d = dt.datetime.combine(today, self.time)
             d = ( d + delta )
             self.time = d.time()
@@ -304,7 +304,7 @@ class DateTime(Date,Time):
         if not hasattr(self, 'offset'):
             return
         tz = Timezone()
-        delta = Timezone.adjustment(self.offset)
+        delta = tz.adjustment(self.offset)
         try:
             d = ( self.datetime + delta )
             self.datetime = d
@@ -364,12 +364,11 @@ class Timezone:
         x = m.start(0)
         return (s[:x], s[x:])
     
-    @classmethod
-    def adjustment(cls, offset):
+    def adjustment(self, offset):
         """
         Get the adjustment to the I{local} TZ.
         @return: The delta between I{offset} and local TZ.
         @rtype: B{datetime}.I{timedelta}
         """
-        delta = ( cls.local - offset )
+        delta = ( self.local - offset )
         return dt.timedelta(hours=delta)
