@@ -26,6 +26,9 @@ from suds.properties import Unskin
 from urlparse import urlparse
 from cookielib import CookieJar
 from logging import getLogger
+from StringIO import StringIO
+
+import pycurl
 
 log = getLogger(__name__)
 
@@ -64,9 +67,9 @@ class HttpTransport(Transport):
             raise TransportError(str(e), e.code, e.fp)
 
     def send(self, request):
-        result = None
-        url = request.url
-        msg = request.message
+        result  = None
+        url     = request.url
+        msg     = request.message
         headers = request.headers
         try:
             u2request = u2.Request(url, msg, headers)
@@ -88,8 +91,30 @@ class HttpTransport(Transport):
     
     def multi_send(self, requests):
         "Sends multi request"
-        pass
-        # FINISH
+        # XXX: Doesn't support cookies
+        multi = MultiRequestHandler()
+        for req in requests:
+            url     = req.url
+            msg     = req.message
+            headers = req.headers
+            #self.addcookies(u2request)
+            self.proxy = self.options.proxy
+            multi.add_request(url, headers=headers, data=msg)
+            
+        result = []
+        try:
+            multi.run()     # Fire multi-request
+            
+            for res in multi:
+                resp_headers    = res.get_headers()
+                resp_body       = res.get_response()
+                resp            = Reply(200, resp_headers.headers.dict, resp_body)
+                result.append(resp)                
+            log.debug('received result')
+            
+        except Exception, e:    # Don't know what exceptions pycurl throws
+            log.debug('multi request failed: %s', e)
+        return result
     
 
     def addcookies(self, u2request):
@@ -192,3 +217,111 @@ class HttpAuthenticated(HttpTransport):
                  
     def credentials(self):
         return (self.options.username, self.options.password)
+    
+    
+class MultiRequestHandler(object):
+    ''' Handle multiple requests asynchronously using CurlMulti. '''
+    def __init__(self):
+        self._multi = pycurl.CurlMulti()
+        self.requests = []
+
+    def __del__(self):
+        del self._multi
+        del self.requests
+
+    def __getitem__(self, key):
+        return self.requests[key]
+
+    def add_request(self, url, headers={}, data=None, options={}):
+        # create handle and set url
+        handle = pycurl.Curl()
+        handle.setopt(pycurl.URL, str(url))
+        # response headers callback
+        response_headers = StringIO()
+        handle.setopt(pycurl.HEADERFUNCTION, response_headers.write)
+        
+        if data:    # Use POST request
+            handle.setopt(pycurl.POST, 1)
+            handle.setopt(pycurl.POSTFIELDS, data)
+                
+        # response callback
+        response = StringIO()
+        handle.setopt(pycurl.WRITEFUNCTION, response.write)
+        # request headers
+        if headers:
+            _headers = self._to_request_headers(headers)
+            print _headers
+            handle.setopt(pycurl.HTTPHEADER, _headers)
+        try:
+            # set pycurl options
+            for opt, val in options.iteritems():
+                handle.setopt(opt, val)
+        except:
+            pass
+        self._multi.add_handle(handle)
+        self.requests.append(MultiRequest(handle, response_headers, response))
+
+    def run(self):
+        num_handles = len(self.requests)
+        while num_handles:
+            while True:
+                ret, num_handles = self._multi.perform()
+                if ret != pycurl.E_CALL_MULTI_PERFORM:
+                    break
+            self._multi.select(1.0)
+
+    def get_requests(self):
+        return self.requests
+
+    def get_request(self, i):
+        return self.request[i]
+
+    def get_response(self, i):
+        return self.requests[i].get_response()
+
+    def get_headers(self, i):
+        return self.requests[i].get_headers()
+
+    def get_code(self, i):
+        return self.requests[i].get_code()
+
+    def _to_request_headers(self, headers):
+        out = []
+        for k, v in headers.iteritems():
+            out.append('%s: %s' % (k.strip(), v.strip()))
+        return out
+
+
+class MultiRequest(object):
+    ''' A request object for MultiRequestHandler. '''
+    def __init__(self, handle, headers, response):
+        self._handle    = handle
+        self._headers   = headers
+        self._response  = response
+
+    def get_response(self):
+        return self._response.getvalue()
+
+    def get_headers(self):
+        out = {}
+        try:
+            headers = self._headers.getvalue().split('\r\n')[1:]
+            for header in headers:
+                if not header:
+                    continue
+                key, val = header.split(':', 1)
+                out[key.strip()] = val.strip()
+        except:
+            return None
+        return out
+
+    def get_code(self):
+        code = None
+        try:
+            code = self._headers.getvalue()
+            code = code.split('\r\n', 1)[0]
+            code = int(code.split(' ')[1])
+        except:
+            pass
+        return code    
+    

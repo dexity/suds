@@ -63,9 +63,9 @@ class HttpAuthenticated(HttpTransport):
         self.addcredentials(request)
         return  HttpTransport.send(self, request)
     
-    def multi_send(self, requests):
-        self.addcredentials(request)
-        return  HttpTransport.multi_send(self, requests)
+#    def multi_send(self, requests):
+#        self.addcredentials(requests)  # XXX: Fix
+#        return  HttpTransport.multi_send(self, requests)
     
     
     def addcredentials(self, request):

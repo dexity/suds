@@ -59,9 +59,9 @@ class Client(object):
     @type sd: L{ServiceDefinition}
     @ivar messages: The last sent/received messages.
     @type messages: str[2]
-    @ivar multirequest: Specifies if request is a multi request based on parameter 
+    @ivar multiarg: Specifies if request is a multi request based on parameter 
                         order (int) or parameter key (str). Default is None
-    @type multirequest: int, str
+    @type multiarg: int, str
     """
     @classmethod
     def items(cls, sobject):
@@ -119,7 +119,7 @@ class Client(object):
             sd = ServiceDefinition(self.wsdl, s)
             self.sd.append(sd)
         self.messages       = dict(tx=None, rx=None)
-        self.multirequest   = None
+        self.multiarg   = None
         
         
     def set_options(self, **kwargs):
@@ -187,7 +187,7 @@ class Client(object):
         clone.service = ServiceSelector(clone, self.wsdl.services)
         clone.sd = self.sd
         clone.messages = dict(tx=None, rx=None)
-        clone.multirequest  = self.multirequest
+        clone.multiarg  = self.multiarg
         return clone
  
     def __str__(self):
@@ -584,8 +584,8 @@ class SoapClient:
     def invoke(self, args, kwargs):
         """
         Send the required soap message to invoke the specified method
-        @param args: A list of args for the method invoked.
-        @type args: list
+        @param args: A tuple of args for the method invoked.
+        @type args: tuple
         @param kwargs: Named (keyword) args for the method invoked.
         @type kwargs: dict
         @return: The result of the method invocation.
@@ -596,25 +596,26 @@ class SoapClient:
         result  = None
         binding = self.method.binding.input
         msg     = None
-        multirequest    = self.client.multirequest
+        multiarg    = self.client.multiarg
         # Single request
-        if multirequest == None:    
+        if multiarg == None:    
             msg = binding.get_message(self.method, args, kwargs)
         # Multi request
         else:
             msg     = []
-            if isinstsance(multirequest, int) and len(args) > multirequest:
-                params  = args[multirequest]
+            if isinstance(multiarg, int) and len(args) > multiarg:
+                _args   = list(args)
+                params  = args[multiarg]
                 for p in params:
-                    args[multirequest]  = p
-                    msg = binding.get_message(self.method, args, kwargs)
-                    msg.append(p)
-            elif isinstsance(multirequest, basestring) and kwargs.has_key(multirequest):
-                params  = kwargs[multirequest]
+                    _args[multiarg]  = p
+                    m   = binding.get_message(self.method, _args, kwargs)
+                    msg.append(m)
+            elif isinstance(multiarg, basestring) and kwargs.has_key(multiarg):
+                params  = kwargs[multiarg]
                 for p in params:
-                    kwargs[multirequest]  = p
-                    msg = binding.get_message(self.method, args, kwargs)
-                    msg.append(p)
+                    kwargs[multiarg]  = p
+                    m   = binding.get_message(self.method, args, kwargs)
+                    msg.append(m)
         timer.stop()
         metrics.log.debug(
                 "message for '%s' created: %s",
