@@ -85,6 +85,13 @@ class HttpTransport(Transport):
                 raise TransportError(e.msg, e.code, e.fp)
         return result
 
+    
+    def multi_send(self, requests):
+        "Sends multi request"
+        pass
+        # FINISH
+    
+
     def addcookies(self, u2request):
         """
         Add cookies in the cookiejar to the request.

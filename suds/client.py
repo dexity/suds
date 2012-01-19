@@ -592,8 +592,7 @@ class SoapClient:
         @rtype: I{builtin}|I{subclass of} L{Object}
         """
         timer   = metrics.Timer()
-        timer.start()   # Traces message creation and request sending
-        
+        timer.start()   # Traces message creation
         result  = None
         binding = self.method.binding.input
         msg     = None
@@ -601,7 +600,6 @@ class SoapClient:
         # Single request
         if multirequest == None:    
             msg = binding.get_message(self.method, args, kwargs)
-            result = self.send(msg)
         # Multi request
         else:
             msg     = []
@@ -617,9 +615,13 @@ class SoapClient:
                     kwargs[multirequest]  = p
                     msg = binding.get_message(self.method, args, kwargs)
                     msg.append(p)
-
-            result  = self.multi_send(msg)
-            
+        timer.stop()
+        metrics.log.debug(
+                "message for '%s' created: %s",
+                self.method.name, timer)
+                
+        timer.start()   # Traces request sending
+        result  = self.send(msg)            
         timer.stop()
         metrics.log.debug(
                 "method '%s' invoked: %s",
@@ -635,20 +637,8 @@ class SoapClient:
         @rtype: I{builtin} or I{subclass of} L{Object}
         """
         result      = None
-        location    = self.location()
-        binding     = self.method.binding.input
-        transport   = self.options.transport
-        retxml      = self.options.retxml
-        log.debug('sending to (%s)\nmessage:\n%s', location, msg)
         try:
-            self.last_sent(Document(msg))
-            request = Request(location, str(msg))
-            request.headers = self.headers()
-            reply   = transport.send(request) # Sends the request
-            if retxml:
-                result = reply.message
-            else:
-                result = self.succeeded(binding, reply.message)
+            result    = self._send(msg)
         except TransportError, e:
             if e.httpcode in (202,204):
                 result = None
@@ -658,9 +648,40 @@ class SoapClient:
         return result
     
     
-    def multi_send(self, msg):
-        "Sends multi request"
+    def _send(self, msg):
+        "Sends request single or multi request"
+        # Can throw an exception
+        location    = self.location()
+        binding     = self.method.binding.input
+        transport   = self.options.transport
+        retxml      = self.options.retxml
+        log.debug('sending to (%s)\nmessage:\n%s', location, msg)
         
+        if isinstance(msg, list):
+            requests    = []
+            for m in msg:
+                self.last_sent(Document(m))
+                request = Request(location, str(m))
+                request.headers = self.headers()
+                requests.append(request)
+            reply   = transport.multi_send(requests)    # Sends the multi request
+            result  = []
+            if retxml:
+                for r in reply:
+                    result.append(r.message)
+            else:
+                for r in reply:
+                    result.append(self.succeeded(binding, r.message))          
+        else:
+            self.last_sent(Document(msg))
+            request = Request(location, str(msg))
+            request.headers = self.headers()
+            reply   = transport.send(request) # Sends the request
+            if retxml:
+                result = reply.message
+            else:
+                result = self.succeeded(binding, reply.message)        
+        return result
         
     
     def headers(self):
