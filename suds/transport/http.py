@@ -108,7 +108,7 @@ class HttpTransport(Transport):
             for res in multi:
                 resp_headers    = res.get_headers()
                 resp_body       = res.get_response()
-                resp            = Reply(200, resp_headers.headers.dict, resp_body)
+                resp            = Reply(200, resp_headers, resp_body)
                 result.append(resp)                
             log.debug('received result')
             
@@ -250,7 +250,6 @@ class MultiRequestHandler(object):
         # request headers
         if headers:
             _headers = self._to_request_headers(headers)
-            print _headers
             handle.setopt(pycurl.HTTPHEADER, _headers)
         try:
             # set pycurl options
@@ -288,7 +287,7 @@ class MultiRequestHandler(object):
     def _to_request_headers(self, headers):
         out = []
         for k, v in headers.iteritems():
-            out.append('%s: %s' % (k.strip(), v.strip()))
+            out.append(str('%s: %s' % (k.strip(), v.strip())))
         return out
 
 
