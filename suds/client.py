@@ -623,6 +623,7 @@ class SoapClient:
                 
         timer.start()   # Traces request sending
         result  = self.send(msg)
+        self.client.multiarg    = None  # Reset multiarg param
         timer.stop()
         metrics.log.debug(
                 "method '%s' invoked: %s",
