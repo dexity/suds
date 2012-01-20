@@ -104,7 +104,6 @@ class HttpTransport(Transport):
         result = []
         try:
             multi.run()     # Fire multi-request
-            
             for res in multi:
                 resp_headers    = res.get_headers()
                 resp_body       = res.get_response()

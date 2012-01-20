@@ -603,14 +603,14 @@ class SoapClient:
         # Multi request
         else:
             msg     = []
-            if isinstance(multiarg, int) and len(args) > multiarg:
+            if isinstance(multiarg, int) and len(args) > multiarg:  # int
                 _args   = list(args)
                 params  = args[multiarg]
                 for p in params:
                     _args[multiarg]  = p
                     m   = binding.get_message(self.method, _args, kwargs)
                     msg.append(m)
-            elif isinstance(multiarg, basestring) and kwargs.has_key(multiarg):
+            elif isinstance(multiarg, basestring) and kwargs.has_key(multiarg): # string
                 params  = kwargs[multiarg]
                 for p in params:
                     kwargs[multiarg]  = p
@@ -622,7 +622,7 @@ class SoapClient:
                 self.method.name, timer)
                 
         timer.start()   # Traces request sending
-        result  = self.send(msg)            
+        result  = self.send(msg)
         timer.stop()
         metrics.log.debug(
                 "method '%s' invoked: %s",
@@ -638,9 +638,10 @@ class SoapClient:
         @rtype: I{builtin} or I{subclass of} L{Object}
         """
         result      = None
+        binding     = self.method.binding.input
         try:
             result    = self._send(msg)
-        except TransportError, e:
+        except TransportError, e:       # Catches exceptions from a single request only!
             if e.httpcode in (202,204):
                 result = None
             else:
@@ -657,7 +658,8 @@ class SoapClient:
         transport   = self.options.transport
         retxml      = self.options.retxml
         log.debug('sending to (%s)\nmessage:\n%s', location, msg)
-        
+                
+        # Multi request
         if isinstance(msg, list):
             requests    = []
             for m in msg:
@@ -667,21 +669,28 @@ class SoapClient:
                 requests.append(request)
             reply   = transport.multi_send(requests)    # Sends the multi request
             result  = []
-            if retxml:
-                for r in reply:
+            for r in reply:
+                if retxml:
                     result.append(r.message)
-            else:
-                for r in reply:
-                    result.append(self.succeeded(binding, r.message))          
+                else:
+                    # Dirty fix: doesn't capture error, appends None instead
+                    try:
+                        message = self.succeeded(binding, r.message)
+                    except Exception, e:
+                        log.debug('failed response: %s', e)
+                        message = None
+                    result.append(message)
+            return result
+        
+        # Single request
+        self.last_sent(Document(msg))
+        request = Request(location, str(msg))
+        request.headers = self.headers()
+        reply   = transport.send(request) # Sends the request
+        if retxml:
+            result = reply.message
         else:
-            self.last_sent(Document(msg))
-            request = Request(location, str(msg))
-            request.headers = self.headers()
-            reply   = transport.send(request) # Sends the request
-            if retxml:
-                result = reply.message
-            else:
-                result = self.succeeded(binding, reply.message)        
+            result = self.succeeded(binding, reply.message)        
         return result
         
     
